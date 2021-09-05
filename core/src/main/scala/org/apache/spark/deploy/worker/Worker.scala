@@ -589,7 +589,7 @@ private[deploy] class Worker(
         workerUri,
         securityMgr)
       drivers(driverId) = driver
-      driver.start()
+      driver.start(); // 启动 driver // Worker 1
 
       coresUsed += driverDesc.cores
       memoryUsed += driverDesc.mem

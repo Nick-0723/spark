@@ -182,7 +182,7 @@ private[deploy] class DriverRunner(
     val builder = CommandUtils.buildProcessBuilder(driverDesc.command, securityManager,
       driverDesc.mem, sparkHome.getAbsolutePath, substituteVariables)
 
-    runDriver(builder, driverDir, driverDesc.supervise)
+    runDriver(builder, driverDir, driverDesc.supervise) // Driver 1
   }
 
   private def runDriver(builder: ProcessBuilder, baseDir: File, supervise: Boolean): Int = {
@@ -198,7 +198,7 @@ private[deploy] class DriverRunner(
       Files.append(header, stderr, StandardCharsets.UTF_8)
       CommandUtils.redirectStream(process.getErrorStream, stderr)
     }
-    runCommandWithRetry(ProcessBuilderLike(builder), initialize, supervise)
+    runCommandWithRetry(ProcessBuilderLike(builder), initialize, supervise) // Driver 2
   }
 
   private[worker] def runCommandWithRetry(
@@ -214,8 +214,13 @@ private[deploy] class DriverRunner(
       logInfo("Launch Command: " + command.command.mkString("\"", "\" \"", "\""))
 
       synchronized {
-        if (killed) { return exitCode }
-        process = Some(command.start())
+        if (killed) { return exitCode };
+
+        /**
+         * 在这启动执行命令, 之后就是写的 Spark 任务的 main 方法了，SparkContext 之类。
+         * 写一个简单的 WordCount 程序，查看 Driver 内部运行。
+         */
+        process = Some(command.start()); // Driver 3
         initialize(process.get)
       }
 

@@ -83,7 +83,7 @@ private[spark] class SparkSubmit extends Logging {
       logInfo(appArgs.toString)
     }
     appArgs.action match {
-      case SparkSubmitAction.SUBMIT => submit(appArgs, uninitLog)
+      case SparkSubmitAction.SUBMIT => submit(appArgs, uninitLog) // SparkSubmit 2
       case SparkSubmitAction.KILL => kill(appArgs)
       case SparkSubmitAction.REQUEST_STATUS => requestStatus(appArgs)
       case SparkSubmitAction.PRINT_VERSION => printVersion()
@@ -158,7 +158,7 @@ private[spark] class SparkSubmit extends Logging {
             }
         }
       } else {
-        runMain(args, uninitLog)
+        runMain(args, uninitLog) // SparkSubmit 4
       }
     }
 
@@ -181,7 +181,7 @@ private[spark] class SparkSubmit extends Logging {
       }
     // In all other modes, just run the main class as prepared
     } else {
-      doRunMain()
+      doRunMain() // SparkSubmit 3
     }
   }
 
@@ -803,6 +803,13 @@ private[spark] class SparkSubmit extends Logging {
     var mainClass: Class[_] = null
 
     try {
+      /**
+       *  如果是 client 模式：直接是运行的那个类。 args 里的 main class
+       *  如果是 standalone 模式：如果用 reset 模式是 RestSubmissionClientApp， 否则是 ClientApp
+       *  如果是 yarn 模式：YarnClusterApplication
+       *  如果是 Mesos 模式：RestSubmissionClientApp
+       *  如果是 Kubernetes模式： KubernetesClientApplication
+       */
       mainClass = Utils.classForName(childMainClass)
     } catch {
       case e: ClassNotFoundException =>
@@ -842,7 +849,7 @@ private[spark] class SparkSubmit extends Logging {
     }
 
     try {
-      app.start(childArgs.toArray, sparkConf)
+      app.start(childArgs.toArray, sparkConf) // SparkSubmit 5
     } catch {
       case t: Throwable =>
         throw findCause(t)
@@ -926,7 +933,7 @@ object SparkSubmit extends CommandLineUtils with Logging {
 
     }
 
-    submit.doSubmit(args)
+    submit.doSubmit(args) // SparkSubmit 1
   }
 
   /**

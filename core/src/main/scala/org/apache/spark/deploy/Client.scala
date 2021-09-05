@@ -64,7 +64,7 @@ private class ClientEndpoint(
     sys.props.get(key).orElse(conf.getOption(key))
   }
 
-  override def onStart(): Unit = {
+  override def onStart(): Unit = { // SparkSubmit 7
     driverArgs.cmd match {
       case "launch" =>
         // TODO: We could add an env variable here and intercept it in `sc.addJar` that would
@@ -87,7 +87,8 @@ private class ClientEndpoint(
           .map(Utils.splitCommandString).getOrElse(Seq.empty)
 
         val sparkJavaOpts = Utils.sparkJavaOpts(conf)
-        val javaOpts = sparkJavaOpts ++ extraJavaOpts
+        val javaOpts = sparkJavaOpts ++ extraJavaOpts;
+        // 组装 Driver 启动命令，因为是 standalone 模式，需要通过 rpc 发送给 master 启动 driver。
         val command = new Command(mainClass,
           Seq("{{WORKER_URL}}", "{{USER_JAR}}", driverArgs.mainClass) ++ driverArgs.driverOptions,
           sys.env, classPathEntries, libraryPathEntries, javaOpts)
@@ -97,7 +98,8 @@ private class ClientEndpoint(
           driverArgs.memory,
           driverArgs.cores,
           driverArgs.supervise,
-          command)
+          command);
+        // 异步发送 RequestSubmitDriver 消息到 master ，然后等待回复 // SparkSubmit 8
         asyncSendToMasterAndForwardReply[SubmitDriverResponse](
           RequestSubmitDriver(driverDescription))
 
@@ -126,7 +128,13 @@ private class ClientEndpoint(
     // is fine.
     logInfo("... waiting before polling master for driver state")
     Thread.sleep(5000)
-    logInfo("... polling master for driver state")
+    logInfo("... polling master for driver state");
+
+    /**
+     * 发送 RequestDriverStatus 消息到 master，同步方法，默认超时时间 2 分钟。
+     * "spark.rpc.askTimeout", "spark.network.timeout"
+     * 拿到状态后退出 // SparkSubmit 10
+     */
     val statusResponse =
       activeMasterEndpoint.askSync[DriverStatusResponse](RequestDriverStatus(driverId))
     if (statusResponse.found) {
@@ -157,8 +165,9 @@ private class ClientEndpoint(
     case SubmitDriverResponse(master, success, driverId, message) =>
       logInfo(message)
       if (success) {
-        activeMasterEndpoint = master
-        pollAndReportStatus(driverId.get)
+        activeMasterEndpoint = master;
+        // 收到 master 消息，成功启动 driver。
+        pollAndReportStatus(driverId.get) // SparkSubmit 9
       } else if (!Utils.responseFromBackup(message)) {
         System.exit(-1)
       }
@@ -234,13 +243,16 @@ private[spark] class ClientApp extends SparkApplication {
     if (!conf.contains("spark.rpc.askTimeout")) {
       conf.set("spark.rpc.askTimeout", "10s")
     }
-    Logger.getRootLogger.setLevel(driverArgs.logLevel)
+    Logger.getRootLogger.setLevel(driverArgs.logLevel);
 
+    // 创建 rpc env
     val rpcEnv =
       RpcEnv.create("driverClient", Utils.localHostName(), 0, conf, new SecurityManager(conf))
 
     val masterEndpoints = driverArgs.masters.map(RpcAddress.fromSparkURL).
-      map(rpcEnv.setupEndpointRef(_, Master.ENDPOINT_NAME))
+      map(rpcEnv.setupEndpointRef(_, Master.ENDPOINT_NAME));
+
+    // 设置 ClientEndpoint  // SparkSubmit 6
     rpcEnv.setupEndpoint("client", new ClientEndpoint(rpcEnv, driverArgs, masterEndpoints, conf))
 
     rpcEnv.awaitTermination()

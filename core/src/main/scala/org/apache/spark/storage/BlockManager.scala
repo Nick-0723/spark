@@ -131,12 +131,16 @@ private[spark] class BlockManager(
     numUsableCores: Int)
   extends BlockDataManager with BlockEvictionHandler with Logging {
 
+  // Shuffler Service 如果开启了，则 Shuffle Map Task 执行完后，Task 资源直接回收，Map 生成的文件由 Shuffle Service 管理。
+  // 后面 Shuffle Write 通过 Shuffle Service 找到自己要的文件。
+  // spark.shuffle.service.enabled, spark.shuffle.service.port
   private[spark] val externalShuffleServiceEnabled =
     conf.get(config.SHUFFLE_SERVICE_ENABLED)
   private val remoteReadNioBufferConversion =
     conf.getBoolean("spark.network.remoteReadNioBufferConversion", false)
 
   val diskBlockManager = {
+    // 如果没有 ShuffleService， 则 Task 结束后，会删除文件。否则不删除。
     // Only perform cleanup if an external service is not serving our shuffle files.
     val deleteFilesOnStop =
       !externalShuffleServiceEnabled || executorId == SparkContext.DRIVER_IDENTIFIER
@@ -144,8 +148,9 @@ private[spark] class BlockManager(
   }
 
   // Visible for testing
-  private[storage] val blockInfoManager = new BlockInfoManager
+  private[storage] val blockInfoManager = new BlockInfoManager;
 
+  // 线程池
   private val futureExecutionContext = ExecutionContext.fromExecutorService(
     ThreadUtils.newDaemonCachedThreadPool("block-manager-future", 128))
 
@@ -181,10 +186,11 @@ private[spark] class BlockManager(
 
   // Address of the server that serves this executor's shuffle files. This is either an external
   // service, or just our own Executor's BlockManager.
-  private[spark] var shuffleServerId: BlockManagerId = _
+  private[spark] var shuffleServerId: BlockManagerId = _;
 
   // Client to read other executors' shuffle files. This is either an external service, or just the
   // standard BlockTransferService to directly connect to other Executors.
+  // 通过这个去找 Shuffle Write 的 文件在哪里
   private[spark] val shuffleClient = if (externalShuffleServiceEnabled) {
     val transConf = SparkTransportConf.fromSparkConf(conf, "shuffle", numUsableCores)
     new ExternalShuffleClient(transConf, securityManager,

@@ -419,22 +419,25 @@ private[deploy] class Master(
   }
 
   override def receiveAndReply(context: RpcCallContext): PartialFunction[Any, Unit] = {
+    // 收到 SparkSubmit 发来的 Driver 请求消息
     case RequestSubmitDriver(description) =>
       if (state != RecoveryState.ALIVE) {
         val msg = s"${Utils.BACKUP_STANDALONE_MASTER_PREFIX}: $state. " +
           "Can only accept driver submissions in ALIVE state."
         context.reply(SubmitDriverResponse(self, false, None, msg))
       } else {
-        logInfo("Driver submitted " + description.command.mainClass)
-        val driver = createDriver(description)
+        logInfo("Driver submitted " + description.command.mainClass);
+        // 创建 driver 程序。启动一个新的 jvm
+        val driver = createDriver(description) // Master 1
         persistenceEngine.addDriver(driver)
         waitingDrivers += driver
         drivers.add(driver)
-        schedule()
+        schedule(); // Master 2
 
         // TODO: It might be good to instead have the submission client poll the master to determine
         //       the current status of the driver. For now it's simply "fire and forget".
 
+        // 向 SparkSubmit 回复消息 // Master 3
         context.reply(SubmitDriverResponse(self, true, Some(driver.id),
           s"Driver successfully submitted as ${driver.id}"))
       }
@@ -735,18 +738,20 @@ private[deploy] class Master(
       // start from the last worker that was assigned a driver, and continue onwards until we have
       // explored all alive workers.
       var launched = false
-      var numWorkersVisited = 0
+      var numWorkersVisited = 0;
+      // 挨个轮询所有 alive workers，直到找到 memory 和 cores 符合要求的。
       while (numWorkersVisited < numWorkersAlive && !launched) {
         val worker = shuffledAliveWorkers(curPos)
         numWorkersVisited += 1
         if (worker.memoryFree >= driver.desc.mem && worker.coresFree >= driver.desc.cores) {
-          launchDriver(worker, driver)
+          launchDriver(worker, driver); // Master 3
           waitingDrivers -= driver
           launched = true
         }
         curPos = (curPos + 1) % numWorkersAlive
       }
-    }
+    };
+    // 启动 Executors
     startExecutorsOnWorkers()
   }
 
@@ -1016,8 +1021,9 @@ private[deploy] class Master(
   private def launchDriver(worker: WorkerInfo, driver: DriverInfo) {
     logInfo("Launching driver " + driver.id + " on worker " + worker.id)
     worker.addDriver(driver)
-    driver.worker = Some(worker)
-    worker.endpoint.send(LaunchDriver(driver.id, driver.desc))
+    driver.worker = Some(worker);
+    // 发送 LaunchDriver 消息给 worker
+    worker.endpoint.send(LaunchDriver(driver.id, driver.desc)) // Master 4
     driver.state = DriverState.RUNNING
   }
 

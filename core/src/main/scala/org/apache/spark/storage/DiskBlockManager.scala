@@ -26,6 +26,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.util.{ShutdownHookManager, Utils}
 
 /**
+ * 维护 Block 跟磁盘映射之间的关系。
  * Creates and maintains the logical mapping between logical blocks and physical on-disk
  * locations. One block is mapped to one file with a name given by its BlockId.
  *
